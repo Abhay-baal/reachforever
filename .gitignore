@@ -1,0 +1,22 @@
+node_modules/
+.next/
+out/
+dist/
+.env
+.env.*
+!.env.example
+.vercel/
+.DS_Store
+coverage/
+
+# Local backups and nested frontend repository
+backups/
+frontend/.git/
+frontend/.next-contact-css-backup-*/
+*.backup-*
+*.bak-*
+*.bak
+*.starter-backup
+*.before-section-removal
+
+/frontend/.git
