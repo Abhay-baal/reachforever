@@ -1,0 +1,20 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import AboutFounderSection from "../components/AboutFounderSection";
+import PublicShell from "../components/PublicShell";
+
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
+
+const fallbackPortraits = {
+  Ashwin: "/team/ashwin.jpg",
+  Abhay: "/team/abhay.jpg",
+  Arvan: "/team/arvan.jpg",
+  Dhruv: "/team/dhruv.jpg",
+};
+
+export default function TeamPage() {
+  const [members, setMembers] = useState([]);
+  useEffect(() => { fetch(`${API_URL}/api/team`, { cache: "no-store" }).then((response) => response.ok ? response.json() : []).then(setMembers).catch(() => setMembers([])); }, []);
+  return <PublicShell><main className="inner-page"><AboutFounderSection /><section className="section-shell team-directory"><div className="inner-page-heading"><span className="eyebrow"><span className="eyebrow-dot" />THE TEAM</span><h1>People who make the work matter.</h1><p>Meet the team behind Reach Forever. Demo records are clearly labelled until replaced in the CMS.</p></div><div className="team-card-row">{members.map((member) => <article className="team-member-card" key={member._id}><div className="team-member-media">{(member.imageUrl || fallbackPortraits[member.name]) ? <img src={member.imageUrl || fallbackPortraits[member.name]} alt={member.name} /> : <span>RF</span>}<div><h2>{member.name}</h2><p>{member.role}</p>{member.isDemo && <small>Demo profile</small>}</div></div><details><summary>Read More</summary><p>{member.biography || "Biography coming soon."}</p>{member.socialLinks?.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.platform}</a>)}</details></article>)}</div></section></main></PublicShell>;
+}

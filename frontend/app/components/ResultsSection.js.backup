@@ -1,0 +1,201 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  SiInstagram,
+  SiFacebook,
+  SiYoutube,
+  SiTiktok,
+  SiX,
+  SiThreads,
+  SiPinterest,
+} from "@icons-pack/react-simple-icons";
+
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
+
+function LinkedinMark({ size = 19 }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: size,
+        height: size,
+        fontSize: size * 0.85,
+        fontWeight: 800,
+        lineHeight: 1,
+        letterSpacing: "-1px",
+      }}
+    >
+      in
+    </span>
+  );
+}
+
+const SOCIAL_ICONS = {
+  instagram: SiInstagram,
+  facebook: SiFacebook,
+  youtube: SiYoutube,
+  tiktok: SiTiktok,
+  linkedin: LinkedinMark,
+  x: SiX,
+  threads: SiThreads,
+  pinterest: SiPinterest,
+};
+
+function getSocialLinks(result) {
+  if (Array.isArray(result.socialLinks)) return result.socialLinks;
+  if (result.platform && result.socialUrl) {
+    return [{ platform: result.platform, url: result.socialUrl, isVisible: true }];
+  }
+  return [];
+}
+
+function ResultCard({ result }) {
+  const links = getSocialLinks(result).filter(
+    (link) => link.isVisible !== false && link.url && SOCIAL_ICONS[link.platform]
+  );
+
+  return (
+    <article className="result-card">
+      <div className="result-image-card">
+        <img
+          src={result.imageUrl}
+          alt="ReachForever client portfolio"
+          loading="lazy"
+          draggable="false"
+        />
+      </div>
+
+      {links.length > 0 && (
+        <nav className="result-social-icons" aria-label="Client social media accounts">
+          {links.map((link, index) => {
+            const Icon = SOCIAL_ICONS[link.platform];
+            return (
+              <a
+                key={`${link.platform}-${link.url}-${index}`}
+                className={`result-social-icon ${link.platform}`}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${link.platform} account`}
+                title={link.platform}
+              >
+                <Icon size={19} color="currentColor" aria-hidden="true" />
+              </a>
+            );
+          })}
+        </nav>
+      )}
+    </article>
+  );
+}
+
+function MovingRow({ results, direction, duration }) {
+  const trackRef = useRef(null);
+  const pointerRef = useRef(null);
+  const draggedRef = useRef(false);
+  const duplicated = useMemo(() => [...results, ...results], [results]);
+
+  function startDrag(event) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    pointerRef.current = { x: event.clientX, lastX: event.clientX };
+    draggedRef.current = false;
+    trackRef.current?.classList.add("is-dragging");
+    trackRef.current?.style.setProperty("--drag-shift", "0px");
+    trackRef.current?.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveDrag(event) {
+    if (!pointerRef.current || !trackRef.current) return;
+    const delta = event.clientX - pointerRef.current.x;
+    if (Math.abs(delta) > 5) draggedRef.current = true;
+    pointerRef.current.lastX = event.clientX;
+    trackRef.current.style.setProperty("--drag-shift", `${delta}px`);
+  }
+
+  function endDrag() {
+    if (!trackRef.current) return;
+    trackRef.current.classList.remove("is-dragging");
+    trackRef.current.style.removeProperty("--drag-shift");
+    pointerRef.current = null;
+  }
+
+  return (
+    <div className="results-marquee">
+      <div
+        ref={trackRef}
+        className={`results-track ${direction}`}
+        style={{ "--results-duration": duration }}
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+      >
+        {duplicated.map((result, index) => (
+          <div className="results-track-item" key={`${result._id}-${index}`}>
+            <ResultCard result={result} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function ResultsSection() {
+  const [results, setResults] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`${API_URL}/api/results`, { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load results.");
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) setResults(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setResults([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section className="results-section" id="results">
+      <div className="section-shell">
+        <div className="results-heading">
+          <span className="eyebrow">
+            <span className="eyebrow-dot" />
+            REAL WORK. REAL RESULTS.
+          </span>
+          <h2>Built on trust. <span>Focused on growth.</span></h2>
+          <p>A closer look at the work and results we share.</p>
+        </div>
+
+        {results.length > 0 ? (
+          <div className="results-rows" aria-label="ReachForever results">
+            <MovingRow results={results} direction="move-right" duration="105s" />
+            <MovingRow results={[...results].reverse()} direction="move-left" duration="115s" />
+          </div>
+        ) : (
+          <div className="results-empty">
+            {loaded ? "Our latest results will appear here soon." : "Loading results…"}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
