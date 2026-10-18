@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import AboutFounderSection from "../components/AboutFounderSection";
 import PublicShell from "../components/PublicShell";
+import RFTeamCarousel from "../components/RFTeamCarousel";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").replace(/\/$/, "");
 
@@ -16,7 +17,6 @@ const fallbackPortraits = {
 export default function TeamPage() {
   const [members, setMembers] = useState([]);
   useEffect(() => { fetch(`${API_URL}/api/team`, { cache: "no-store" }).then((response) => response.ok ? response.json() : []).then(setMembers).catch(() => setMembers([])); }, []);
-  const carouselMembers = [...members, ...members];
 
   return (
     <PublicShell>
@@ -29,33 +29,7 @@ export default function TeamPage() {
             <p>Creative minds, strategic thinkers, and people who care about the work.</p>
           </div>
 
-          <div className="team-card-row" aria-label="Reach Forever team members">
-            <div className="team-card-belt">
-              {carouselMembers.map((member, index) => {
-                const portrait = member.imageUrl || fallbackPortraits[member.name];
-                return (
-                  <div className="team-card-tile" key={`${member._id || member.name}-${index}`}>
-                    <article className="clean-results-card">
-                      <div className="clean-results-card-media">
-                        {portrait ? (
-                          <img src={portrait} alt={member.name} loading="lazy" draggable="false" />
-                        ) : (
-                          <div className="team-card-image-fallback">RF</div>
-                        )}
-                        <div className="clean-results-card-overlay">
-                          <p className="clean-results-card-category">{member.role || "Team Member"}</p>
-                          <h3 className="clean-results-card-brand">{member.name}</h3>
-                          <a className="clean-results-card-link" href="#" aria-label={`Read more about ${member.name}`}>
-                            <span>Read More</span>
-                          </a>
-                        </div>
-                      </div>
-                    </article>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <RFTeamCarousel members={members} />
         </section>
       </main>
     </PublicShell>

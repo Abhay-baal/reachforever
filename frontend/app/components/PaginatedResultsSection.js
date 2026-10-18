@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import {
   SiInstagram,
@@ -69,106 +70,54 @@ function ResultCard({ result }) {
     result.name ||
     "Brand Name";
 
-  const growthUrl =
-    result.growthUrl ||
-    result.caseStudyUrl ||
-    result.projectUrl ||
-    result.websiteUrl ||
-    "#";
+  const slug = result.slug || String(brandName).toLowerCase()
+    .trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
   return (
-    <article className="clean-results-card">
+    <Link
+      className="clean-results-card-navigation"
+      href={`/results/${encodeURIComponent(slug)}`}
+      aria-label={`View project details for ${brandName}`}
+    >
+      <article className="clean-results-card">
       <div className="clean-results-card-media">
-        <img
-          src={result.imageUrl}
-          alt={`${brandName} — ReachForever project`}
-          loading="lazy"
-          draggable="false"
-        />
+        {result.imageUrl ? (
+          <img src={result.imageUrl} alt={`${brandName} project`} loading="lazy" />
+        ) : (
+          <div className="clean-results-card-placeholder" aria-hidden="true" />
+        )}
 
         <div className="clean-results-card-overlay">
           <p className="clean-results-card-category">{category}</p>
           <h3 className="clean-results-card-brand">{brandName}</h3>
 
-          <a
-            className="clean-results-card-link"
-            href={growthUrl}
-            target={growthUrl !== "#" ? "_blank" : undefined}
-            rel={growthUrl !== "#" ? "noopener noreferrer" : undefined}
-            aria-label={`View growth for ${brandName}`}
-          >
-            <span>View Growth</span>
-            
-          </a>
+          <span className="clean-results-card-link">
+            <span>View Project</span>
+          </span>
         </div>
       </div>
-    </article>
+      </article>
+    </Link>
   );
 }
 
-function MovingRow({ results, direction, duration }) {
-  const trackRef = useRef(null);
-  const pointerRef = useRef(null);
-  const draggedRef = useRef(false);
-  const duplicated = useMemo(() => [...results, ...results], [results]);
-
-  function startDrag(event) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    pointerRef.current = { x: event.clientX, lastX: event.clientX };
-    draggedRef.current = false;
-    trackRef.current?.setPointerCapture?.(event.pointerId);
-  }
-
-  function moveDrag(event) {
-    if (!pointerRef.current || !trackRef.current) return;
-    const delta = event.clientX - pointerRef.current.x;
-    if (Math.abs(delta) > 5 && !draggedRef.current) {
-      draggedRef.current = true;
-      trackRef.current.classList.add("is-dragging");
-      trackRef.current.style.setProperty("--drag-shift", "0px");
-    }
-    pointerRef.current.lastX = event.clientX;
-    if (draggedRef.current) {
-      trackRef.current.style.setProperty("--drag-shift", `${delta}px`);
-    }
-  }
-
-  function endDrag() {
-    if (trackRef.current && draggedRef.current) {
-      trackRef.current.classList.remove("is-dragging");
-      trackRef.current.style.removeProperty("--drag-shift");
-    }
-    pointerRef.current = null;
-    draggedRef.current = false;
-  }
-
-  return (
-    <div className="clean-results-lane">
-      <div
-        ref={trackRef}
-        className={`clean-results-belt ${direction === "move-left" ? "clean-results-belt--left" : "clean-results-belt--right"}`}
-        style={{ "--results-duration": duration }}
-        onPointerDown={startDrag}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onLostPointerCapture={endDrag}
-      >
-        {duplicated.map((result, index) => (
-          <div className="clean-results-tile" key={`${result._id}-${index}`}>
-            <ResultCard result={result} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function ResultsSection() {
   const [results, setResults] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const RESULTS_PER_PAGE = 9;
+  const [isMobile, setIsMobile] = useState(false);
+  const resultsPerPage = isMobile ? 8 : 9;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 760px)");
+    const updateViewport = () => setIsMobile(mediaQuery.matches);
+
+    updateViewport();
+    mediaQuery.addEventListener("change", updateViewport);
+
+    return () => mediaQuery.removeEventListener("change", updateViewport);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,17 +145,15 @@ export default function ResultsSection() {
     };
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(results.length / RESULTS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(results.length / resultsPerPage));
   const pageResults = useMemo(() => {
-    const start = (currentPage - 1) * RESULTS_PER_PAGE;
-    return results.slice(start, start + RESULTS_PER_PAGE);
-  }, [results, currentPage]);
+    const start = (currentPage - 1) * resultsPerPage;
+    return results.slice(start, start + resultsPerPage);
+  }, [results, currentPage, resultsPerPage]);
 
-  const mobileRows = [
-    pageResults.slice(0, 3),
-    pageResults.slice(3, 6),
-    pageResults.slice(6, 9),
-  ];
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   function changePage(nextPage) {
     setCurrentPage(Math.min(totalPages, Math.max(1, nextPage)));
@@ -237,18 +184,7 @@ export default function ResultsSection() {
               ))}
             </div>
 
-            <div className="results-mobile-carousels" aria-label="ReachForever results carousels">
-              {mobileRows.map((rowResults, index) =>
-                rowResults.length > 0 ? (
-                  <MovingRow
-                    key={`mobile-results-row-${currentPage}-${index}`}
-                    results={rowResults}
-                    direction={index === 1 ? "move-right" : "move-left"}
-                    duration={index === 1 ? "42s" : "38s"}
-                  />
-                ) : null
-              )}
-            </div>
+
 
             {totalPages > 1 && (
               <nav className="results-pagination" aria-label="Results pages">

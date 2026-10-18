@@ -8,6 +8,7 @@ const socialLinkSchema = new mongoose.Schema(
 const teamMemberSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 120 },
+    slug: { type: String, trim: true, unique: true, sparse: true, index: true },
     role: { type: String, required: true, trim: true, maxlength: 160 },
     biography: { type: String, trim: true, maxlength: 3000, default: "" },
     imageUrl: { type: String, trim: true, default: "" },

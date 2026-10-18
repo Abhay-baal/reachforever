@@ -6,14 +6,14 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000").rep
 
 const DEFAULT_CONTENT = {
   isVisible: true,
-  eyebrow: "THE PEOPLE BEHIND THE WORK",
+  eyebrow: "THE PERSON BEHIND THE WORK",
   heading: "Good work starts with good people.",
   description:
-    "Reach Forever is a full-service digital marketing agency dedicated to helping businesses build meaningful digital experiences that drive measurable growth.",
+    "We help brands reach further and grow faster.",
   founderName: "Ansh Khatri",
   founderTitle: "Founder & CEO, Reach Forever",
   founderStory:
-    "To turn passion into reach, reach into real customers, and hard work into a brand that grows forever.",
+    "Passion into reach. Growth that lasts.",
   imageUrl: "",
   buttonText: "Let's grow together",
   buttonUrl: "#contact",

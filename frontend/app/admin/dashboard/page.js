@@ -28,17 +28,26 @@ export default function AdminPage() {
   const router = useRouter();
   const [token, setToken] = useState("");
   const [ready, setReady] = useState(false);
+  const [activeSection, setActiveSection] = useState("overview");
+  const [showMoreNav, setShowMoreNav] = useState(false);
+  const [showProjectForm, setShowProjectForm] = useState(false);
+  const [showTeamForm, setShowTeamForm] = useState(false);
   const [results, setResults] = useState([]);
+  const [resultsPage, setResultsPage] = useState(1);
+  const RESULTS_PER_PAGE = 10;
   const [socialLinks, setSocialLinks] = useState([]);
   const [order, setOrder] = useState("0");
   const [image, setImage] = useState(null);
+  const [coverPreview, setCoverPreview] = useState("");
+  const [galleryFiles, setGalleryFiles] = useState([]);
+  const [galleryPreviews, setGalleryPreviews] = useState([]);
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [founderForm, setFounderForm] = useState({
     isVisible: true,
-    eyebrow: "THE PEOPLE BEHIND THE WORK",
+    eyebrow: "THE PERSON BEHIND THE WORK",
     heading: "Good work starts with good people.",
     description: "",
     founderName: "Ansh Khatri",
@@ -50,13 +59,33 @@ export default function AdminPage() {
   });
   const [founderImage, setFounderImage] = useState(null);
   const [founderSaving, setFounderSaving] = useState(false);
-  const [resultDetails, setResultDetails] = useState({ clientName: "", category: "", description: "", growthUrl: "", mediaType: "image", videoUrl: "" });
+  const [videoFile, setVideoFile] = useState(null);
+  const [resultDetails, setResultDetails] = useState({ clientName: "", category: "", description: "", longDescription: "", servicesProvided: "", keyResults: "", growthUrl: "", mediaType: "image", videoUrl: "" });
   const [overview, setOverview] = useState({});
   const [services, setServices] = useState([]);
   const [team, setTeam] = useState([]);
+  const [teamForm, setTeamForm] = useState({ name: "", role: "", biography: "" });
+  const [teamImage, setTeamImage] = useState(null);
+  const [editingTeam, setEditingTeam] = useState(null);
+  const [teamSaving, setTeamSaving] = useState(false);
   const [enquiries, setEnquiries] = useState([]);
   const [settings, setSettings] = useState({ email: "", phone: "", address: "", businessHours: "", footerDescription: "" });
 
+  useEffect(() => {
+    if (!image) {
+      setCoverPreview("");
+      return undefined;
+    }
+    const previewUrl = URL.createObjectURL(image);
+    setCoverPreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [image]);
+
+  useEffect(() => {
+    const previewUrls = galleryFiles.map((file) => URL.createObjectURL(file));
+    setGalleryPreviews(previewUrls);
+    return () => previewUrls.forEach((url) => URL.revokeObjectURL(url));
+  }, [galleryFiles]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -143,6 +172,80 @@ export default function AdminPage() {
   }
 
 
+
+  async function saveTeamMember(event) {
+    event.preventDefault();
+    setTeamSaving(true);
+    setError("");
+    setMessage("");
+
+    const isEditing = Boolean(editingTeam);
+
+    try {
+      const savedMember = await request(
+        isEditing ? `/api/admin/team/${editingTeam._id}` : "/api/admin/team",
+        {
+          method: isEditing ? "PATCH" : "POST",
+          body: JSON.stringify(
+            isEditing ? teamForm : { ...teamForm, isDemo: false }
+          ),
+        }
+      );
+
+      if (teamImage) {
+        const formData = new FormData();
+        formData.append("image", teamImage);
+
+        await request(`/api/admin/team/${savedMember._id}/image`, {
+          method: "POST",
+          body: formData,
+        });
+      }
+
+      setTeamForm({ name: "", role: "", biography: "" });
+      setTeamImage(null);
+      setEditingTeam(null);
+      setShowTeamForm(false);
+
+      const fileInput = document.getElementById("team-photo");
+      if (fileInput) fileInput.value = "";
+
+      await loadCmsData();
+      setMessage(isEditing ? "Team member updated." : "Team member added.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTeamSaving(false);
+    }
+  }
+
+  function startEditingTeam(member) {
+    setActiveSection("team");
+    setShowTeamForm(true);
+    setEditingTeam(member);
+    setTeamForm({
+      name: member.name || "",
+      role: member.role || "",
+      biography: member.biography || "",
+    });
+    setTeamImage(null);
+    setError("");
+    setMessage("");
+
+    const fileInput = document.getElementById("team-photo");
+    if (fileInput) fileInput.value = "";
+  }
+
+  function cancelEditingTeam() {
+    setShowTeamForm(false);
+    setEditingTeam(null);
+    setTeamForm({ name: "", role: "", biography: "" });
+    setTeamImage(null);
+
+    const fileInput = document.getElementById("team-photo");
+    if (fileInput) fileInput.value = "";
+  }
+
   function updateFounderField(field, value) {
     setFounderForm((current) => ({ ...current, [field]: value }));
   }
@@ -188,16 +291,25 @@ export default function AdminPage() {
     }
   }
   function resetForm() {
+    setShowProjectForm(false);
     setEditing(null);
     setSocialLinks([]);
     setOrder(String(results.length));
     setImage(null);
-    setResultDetails({ clientName: "", category: "", description: "", growthUrl: "", mediaType: "image", videoUrl: "" });
+    setGalleryFiles([]);
+    setVideoFile(null);
+    const videoInput = document.getElementById("result-video");
+    if (videoInput) videoInput.value = "";
+    const galleryInput = document.getElementById("result-gallery");
+    if (galleryInput) galleryInput.value = "";
+    setResultDetails({ clientName: "", category: "", description: "", longDescription: "", servicesProvided: "", keyResults: "", growthUrl: "", mediaType: "image", videoUrl: "" });
     const fileInput = document.getElementById("result-cover");
     if (fileInput) fileInput.value = "";
   }
 
   function beginEdit(result) {
+    setActiveSection("results");
+    setShowProjectForm(true);
     setEditing(result);
     setSocialLinks(legacyLinks(result).map((link) => ({
       platform: link.platform,
@@ -206,7 +318,11 @@ export default function AdminPage() {
     })));
     setOrder(String(result.order ?? 0));
     setImage(null);
-    setResultDetails({ clientName: result.clientName || "", category: result.category || "", description: result.description || "", growthUrl: result.growthUrl || "", mediaType: result.mediaType || "image", videoUrl: result.videoUrl || "" });
+    setGalleryFiles([]);
+    setVideoFile(null);
+    const videoInput = document.getElementById("result-video");
+    if (videoInput) videoInput.value = "";
+    setResultDetails({ clientName: result.clientName || "", category: result.category || "", description: result.description || "", longDescription: result.longDescription || "", servicesProvided: Array.isArray(result.servicesProvided) ? result.servicesProvided.join("\n") : "", keyResults: Array.isArray(result.keyResults) ? result.keyResults.join("\n") : "", growthUrl: result.growthUrl || "", mediaType: result.mediaType || "image", videoUrl: result.videoUrl || "" });
     setMessage("");
     setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -225,6 +341,7 @@ export default function AdminPage() {
     setMessage("");
 
     try {
+      if (galleryFiles.length > 12) throw new Error("Upload a maximum of 12 gallery images at a time.");
       const cleanLinks = socialLinks
         .filter((link) => link.url.trim())
         .map((link) => ({
@@ -245,8 +362,9 @@ export default function AdminPage() {
         }
       }
 
+      let savedResult;
       if (editing) {
-        await request(`/api/admin/results/${editing._id}`, {
+        savedResult = await request(`/api/admin/results/${editing._id}`, {
           method: "PATCH",
           body: JSON.stringify({ ...resultDetails, socialLinks: cleanLinks, order: Number(order) }),
         });
@@ -254,7 +372,7 @@ export default function AdminPage() {
         if (image) {
           const form = new FormData();
           form.append("image", image);
-          await request(`/api/admin/results/${editing._id}/image`, {
+          savedResult = await request(`/api/admin/results/${editing._id}/image`, {
             method: "POST",
             body: form,
           });
@@ -267,12 +385,58 @@ export default function AdminPage() {
         form.append("socialLinks", JSON.stringify(cleanLinks));
         form.append("order", order);
         Object.entries(resultDetails).forEach(([field, value]) => form.append(field, value));
-        await request("/api/admin/results", { method: "POST", body: form });
+        savedResult = await request("/api/admin/results", { method: "POST", body: form });
         setMessage("Result added.");
+      }
+
+      const resultId = editing?._id || savedResult?._id || savedResult?.id;
+
+      if (videoFile) {
+        if (!resultId) throw new Error("Result saved, but its ID was missing; the video was not uploaded.");
+        const videoForm = new FormData();
+        videoForm.append("video", videoFile);
+        await request(`/api/admin/results/${resultId}/video`, {
+          method: "POST",
+          body: videoForm,
+        });
+      }
+
+      if (galleryFiles.length) {
+        if (!resultId) throw new Error("Result saved, but its ID was missing; gallery images were not uploaded.");
+        const galleryForm = new FormData();
+        galleryFiles.forEach((file) => galleryForm.append("gallery", file));
+        await request(`/api/admin/results/${resultId}/gallery`, {
+          method: "POST",
+          body: galleryForm,
+        });
       }
 
       resetForm();
       await loadResults();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteGalleryImage(item) {
+    if (!editing?._id || !item?.publicId) return;
+    if (!window.confirm("Permanently delete this gallery image from the project and Cloudinary?")) return;
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const updated = await request(
+        `/api/admin/results/${editing._id}/gallery/${encodeURIComponent(item.publicId)}`,
+        { method: "DELETE" }
+      );
+      setEditing(updated);
+      setResults((current) => current.map((result) =>
+        result._id === updated._id ? updated : result
+      ));
+      setMessage("Gallery image permanently deleted.");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -321,16 +485,18 @@ export default function AdminPage() {
   }
 
   async function deleteResult(result) {
-    if (!window.confirm("Permanently delete this result and its cover image?")) return;
+    if (!window.confirm("Permanently delete this project, its cover image, gallery images, and uploaded video?")) return;
     setError("");
     setMessage("");
     try {
       const response = await request(`/api/admin/results/${result._id}`, {
         method: "DELETE",
       });
-      setMessage(response.imageCleanup === "failed"
-        ? "Result deleted, but Cloudinary cleanup needs attention. Check backend logs."
-        : "Result permanently deleted.");
+      setMessage(
+        response.imageCleanup === "failed" || response.videoCleanup === "failed"
+          ? "Project deleted, but some Cloudinary media cleanup failed. Check backend logs."
+          : "Project and associated media deleted successfully."
+      );
       if (editing?._id === result._id) resetForm();
       await loadResults();
     } catch (err) {
@@ -358,12 +524,109 @@ export default function AdminPage() {
           <button className="admin-secondary-button" onClick={logout}>Sign out</button>
         </header>
 
+        <nav className="rf-admin-navigation" aria-label="Admin sections">
+          <div className="rf-admin-sidebar-brand">
+            <span className="rf-admin-brand-mark" aria-hidden="true">R</span>
+            <span><strong>ReachForever</strong><small>ADMIN WORKSPACE</small></span>
+          </div>
+
+          <p className="rf-admin-nav-caption">WORKSPACE</p>
+          {[
+            ["overview", "Overview", "⌂", "rf-admin-nav-primary"],
+            ["results", "Results", "▧", "rf-admin-nav-primary"],
+            ["__hidden_services__", "Services", "◇", "rf-admin-nav-primary"],
+            ["team", "Team", "♙", "rf-admin-nav-primary"],
+            ["__hidden_settings__", "Contact Details", "✉", "rf-admin-nav-secondary"],
+            ["__hidden_enquiries__", "Enquiries", "☷", "rf-admin-nav-secondary"],
+          ].map(([id, label, symbol, visibility]) => (
+            <button
+              key={id}
+              type="button"
+              className={`rf-admin-nav-item ${visibility} ${activeSection === id ? "is-active" : ""}`}
+              aria-current={activeSection === id ? "page" : undefined}
+              onClick={() => {
+                setActiveSection(id);
+                setShowMoreNav(false);
+                setError("");
+                setMessage("");
+              }}
+            >
+              <span className="rf-admin-nav-symbol" aria-hidden="true">{symbol}</span>
+              <span>{label}</span>
+            </button>
+          ))}
+
+          <button
+            type="button"
+            className={`rf-admin-nav-item rf-admin-nav-more ${showMoreNav ? "is-active" : ""}`}
+            aria-expanded={showMoreNav}
+            onClick={() => setShowMoreNav((current) => !current)}
+          >
+            <span className="rf-admin-nav-symbol" aria-hidden="true">•••</span>
+            <span>More</span>
+          </button>
+
+          {showMoreNav && (
+            <div className="rf-admin-more-menu">
+              {[
+                ["__hidden_settings__", "Contact Details", "✉"],
+                ["__hidden_enquiries__", "Enquiries", "☷"],
+              ].map(([id, label, symbol]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`rf-admin-nav-item ${activeSection === id ? "is-active" : ""}`}
+                  onClick={() => {
+                    setActiveSection(id);
+                    setShowMoreNav(false);
+                    setError("");
+                    setMessage("");
+                  }}
+                >
+                  <span className="rf-admin-nav-symbol" aria-hidden="true">{symbol}</span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </nav>
+
         {(error || message) && <p className={`admin-alert ${error ? "error" : "success"}`}>{error || message}</p>}
 
-        <section className="admin-overview-grid">
-          {[["Published results", overview.publishedResults], ["Published services", overview.publishedServices], ["Team members", overview.teamMembers], ["New enquiries", overview.newEnquiries]].map(([label, value]) => <div className="admin-overview-stat" key={label}><strong>{value ?? "—"}</strong><span>{label}</span></div>)}
+        {/* section: activeSection === "overview" */}
+{activeSection === "overview" && (
+<>
+<section className="admin-overview-grid">
+          {[["Projects", results.length], ["Team members", team.length]].map(([label, value]) => <div className="admin-overview-stat" key={label}><strong>{value}</strong><span>{label}</span></div>)}
         </section>
 
+        <section className="rf-admin-quick-actions">
+          <div>
+            <h2>Quick actions</h2>
+            <p>Manage the projects and people featured on your website.</p>
+          </div>
+          <div className="rf-admin-quick-action-buttons">
+            <button type="button" className="admin-primary-button" onClick={() => {
+              resetForm();
+              setActiveSection("results");
+              setShowProjectForm(true);
+              setError("");
+              setMessage("");
+            }}>+ Add project</button>
+            <button type="button" className="admin-secondary-button" onClick={() => {
+              cancelEditingTeam();
+              setActiveSection("team");
+              setShowTeamForm(true);
+              setError("");
+              setMessage("");
+            }}>+ Add team member</button>
+            <button type="button" className="admin-secondary-button" onClick={() => setActiveSection("results")}>View projects</button>
+          </div>
+        </section>
+        </>
+        )}
+{/* section: activeSection === "__hidden_services__" */}
+{activeSection === "__hidden_services__" && (
         <section className="admin-form-card">
           <h2>Services</h2>
           <form className="admin-result-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void updateCms("/api/admin/services", "POST", { name: form.get("name"), shortDescription: form.get("shortDescription"), order: Number(form.get("order")) || 0 }); event.currentTarget.reset(); }}>
@@ -375,15 +638,123 @@ export default function AdminPage() {
           <div className="admin-simple-list">{services.map((service) => <div key={service._id}><span>{service.name} · {service.isPublished ? "Published" : "Hidden"}</span><button className="admin-secondary-button" onClick={() => void updateCms(`/api/admin/services/${service._id}`, "PATCH", { isPublished: !service.isPublished })}>{service.isPublished ? "Hide" : "Publish"}</button><button className="admin-secondary-button" onClick={() => window.confirm("Delete this service?") && void updateCms(`/api/admin/services/${service._id}`, "DELETE")}>Delete</button></div>)}</div>
         </section>
 
-        <section className="admin-form-card">
-          <h2>Team</h2>
-          <form className="admin-result-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void updateCms("/api/admin/team", "POST", { name: form.get("name"), role: form.get("role"), biography: form.get("biography"), isDemo: false }); event.currentTarget.reset(); }}>
-            <div className="admin-form-grid"><label>Name<input name="name" required maxLength={120} /></label><label>Role<input name="role" required maxLength={160} /></label></div>
-            <label>Biography<textarea name="biography" rows={3} maxLength={3000} /></label><button className="admin-primary-button">Add team member</button>
-          </form>
-          <div className="admin-simple-list">{team.map((member) => <div key={member._id}><span>{member.name} · {member.role}{member.isDemo ? " · Demo" : ""}</span><button className="admin-secondary-button" onClick={() => void updateCms(`/api/admin/team/${member._id}`, "PATCH", { isPublished: !member.isPublished })}>{member.isPublished ? "Hide" : "Publish"}</button><button className="admin-secondary-button" onClick={() => window.confirm("Delete this team member?") && void updateCms(`/api/admin/team/${member._id}`, "DELETE")}>Delete</button></div>)}</div>
+
+        )}
+{/* section: activeSection === "team" */}
+{activeSection === "team" && (
+        <section className="admin-form-card rf-admin-team-card">
+          <div className="admin-list-heading">
+            <h2>Team members <span>{team.length}</span></h2>
+            {!showTeamForm && (
+              <button type="button" className="admin-primary-button" onClick={() => {
+                cancelEditingTeam();
+                setShowTeamForm(true);
+                setError("");
+                setMessage("");
+              }}>+ Add team member</button>
+            )}
+          </div>
+
+          {showTeamForm && (
+            <div className="rf-admin-editor-panel">
+              <h3>{editingTeam ? "Edit team member" : "Add team member"}</h3>
+              <form className="admin-result-form" onSubmit={saveTeamMember}>
+            <div className="admin-form-grid">
+              <label>
+                Name
+                <input
+                  name="name"
+                  value={teamForm.name}
+                  onChange={(event) => setTeamForm((current) => ({ ...current, name: event.target.value }))}
+                  required
+                  maxLength={120}
+                />
+              </label>
+              <label>
+                Role
+                <input
+                  name="role"
+                  value={teamForm.role}
+                  onChange={(event) => setTeamForm((current) => ({ ...current, role: event.target.value }))}
+                  required
+                  maxLength={160}
+                />
+              </label>
+            </div>
+
+            <label>
+              Biography
+              <textarea
+                name="biography"
+                value={teamForm.biography}
+                onChange={(event) => setTeamForm((current) => ({ ...current, biography: event.target.value }))}
+                rows={4}
+                maxLength={3000}
+              />
+            </label>
+
+            {editingTeam?.imageUrl && (
+              <div>
+                <p>Current profile photo</p>
+                <img
+                  src={editingTeam.imageUrl}
+                  alt={`${editingTeam.name} profile`}
+                  style={{ width: 112, height: 112, objectFit: "cover", borderRadius: 12 }}
+                />
+              </div>
+            )}
+
+            <label>
+              {editingTeam ? "Replace profile photo (optional)" : "Profile photo (optional)"}
+              <input
+                id="team-photo"
+                name="image"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/avif"
+                onChange={(event) => setTeamImage(event.target.files?.[0] || null)}
+              />
+              <small>JPG, PNG, WebP or AVIF · Maximum 5 MB</small>
+            </label>
+
+            <div className="admin-form-actions">
+              <button className="admin-primary-button" type="submit" disabled={teamSaving}>
+                {teamSaving ? "Saving..." : editingTeam ? "Save changes" : "Add team member"}
+              </button>
+              <button className="admin-secondary-button" type="button" onClick={cancelEditingTeam} disabled={teamSaving}>
+                Cancel
+              </button>
+            </div>
+              </form>
+            </div>
+          )}
+
+          <div className="admin-simple-list">
+            {team.map((member) => (
+              <div className="rf-admin-team-row" key={member._id}>
+                <span>
+                  {member.name} · {member.role}
+                  {member.isDemo ? " · Existing demo record" : ""}
+                </span>
+                <button className="admin-secondary-button" type="button" onClick={() => startEditingTeam(member)}>
+                  Edit
+                </button>
+
+                <button
+                  className="admin-secondary-button"
+                  type="button"
+                  onClick={() => window.confirm("Delete this team member and their uploaded profile photo?") && void updateCms(`/api/admin/team/${member._id}`, "DELETE")}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
 
+
+        )}
+{/* section: activeSection === "__hidden_settings__" */}
+{activeSection === "__hidden_settings__" && (
         <section className="admin-form-card">
           <h2>Contact details and Site Settings</h2>
           <form className="admin-result-form" onSubmit={(event) => { event.preventDefault(); void updateCms("/api/admin/site-settings", "PATCH", settings); }}>
@@ -391,9 +762,19 @@ export default function AdminPage() {
           </form>
         </section>
 
+
+        )}
+{/* section: activeSection === "__hidden_enquiries__" */}
+{activeSection === "__hidden_enquiries__" && (
         <section className="admin-list-section"><div className="admin-list-heading"><h2>Enquiries <span>{enquiries.length}</span></h2><button className="admin-secondary-button" onClick={loadCmsData}>Refresh</button></div><div className="admin-simple-list">{enquiries.map((enquiry) => <div className="admin-enquiry" key={enquiry._id}><strong>{enquiry.name} · {enquiry.email}</strong><span>{enquiry.message}</span><select value={enquiry.status} onChange={(event) => void updateCms(`/api/admin/enquiries/${enquiry._id}`, "PATCH", { status: event.target.value })}><option>New</option><option>In Progress</option><option>Resolved</option></select><button className="admin-secondary-button" onClick={() => window.confirm("Delete this enquiry?") && void updateCms(`/api/admin/enquiries/${enquiry._id}`, "DELETE")}>Delete</button></div>)}</div></section>
 
-        <section className="admin-form-card admin-founder-card">
+
+        )}
+{/* section: activeSection === "overview" */}
+{activeSection === "overview" && (
+        <details className="admin-form-card admin-founder-card rf-admin-disclosure">
+          <summary>Manage homepage founder section</summary>
+          <div className="rf-admin-disclosure-content">
           <h2>About the Founder</h2>
           <p className="admin-founder-intro">
             Manage the founder section displayed on your homepage.
@@ -510,12 +891,29 @@ export default function AdminPage() {
               {founderSaving ? "Saving founder section…" : "Save founder section"}
             </button>
           </form>
-        </section>
+        </div>
+        </details>
 
-        <section className="admin-form-card">
-          <h2>{editing ? "Edit result" : "Add a result"}</h2>
-          <form onSubmit={saveResult} className="admin-result-form">
-            <label>Cover image {editing && "(optional when editing)"}
+
+        )}
+{/* section: activeSection === "results" */}
+{activeSection === "results" && (
+        <section className="admin-form-card rf-admin-project-card">
+          <div className="admin-list-heading">
+            <h2>{editing ? "Edit project" : "Add project"}</h2>
+            {!showProjectForm && (
+              <button type="button" className="admin-primary-button" onClick={() => {
+                resetForm();
+                setShowProjectForm(true);
+                setError("");
+                setMessage("");
+              }}>+ Add project</button>
+            )}
+          </div>
+          {showProjectForm && (
+            <div className="rf-admin-editor-panel">
+              <form onSubmit={saveResult} className="admin-result-form">
+            <label>Cover image {editing && "(leave empty to keep the current cover)"}
               <input
                 id="result-cover"
                 type="file"
@@ -523,91 +921,141 @@ export default function AdminPage() {
                 onChange={(e) => setImage(e.target.files?.[0] || null)}
                 required={!editing}
               />
-              <small>JPG, PNG, WebP or AVIF. Maximum 5 MB.</small>
+              <small>Required for new projects. JPG, PNG, WebP or AVIF; maximum 5 MB.</small>
+              {(coverPreview || editing?.imageUrl) ? (
+                <div className="rf-admin-cover-preview">
+                  <img
+                    src={coverPreview || editing.imageUrl}
+                    alt={image ? "Selected cover preview" : "Current project cover"}
+                  />
+                  <div>
+                    <strong>{image ? "New cover selected" : "Current cover photo"}</strong>
+                    <small>{image ? image.name : "Choose a file above to replace this image."}</small>
+                  </div>
+                </div>
+              ) : (
+                <small className="rf-admin-image-empty">No cover photo available.</small>
+              )}
             </label>
 
-            <div className="admin-form-grid">
-              <label>Client or brand name
-                <input value={resultDetails.clientName} onChange={(e) => setResultDetails((current) => ({ ...current, clientName: e.target.value }))} maxLength={160} />
-              </label>
-              <label>Service or category
-                <input value={resultDetails.category} onChange={(e) => setResultDetails((current) => ({ ...current, category: e.target.value }))} maxLength={160} />
-              </label>
-            </div>
-
-            <label>Description
-              <textarea value={resultDetails.description} onChange={(e) => setResultDetails((current) => ({ ...current, description: e.target.value }))} rows={3} maxLength={3000} />
+            <label>Gallery images (optional)
+              <input
+                id="result-gallery"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/avif"
+                multiple
+                onChange={(e) => setGalleryFiles(Array.from(e.target.files || []))}
+              />
+              <small>Choose up to 12 new images per upload. Existing gallery images are kept unless deleted.</small>
             </label>
 
-            <div className="admin-form-grid">
-              <label>View Growth URL
-                <input type="url" value={resultDetails.growthUrl} onChange={(e) => setResultDetails((current) => ({ ...current, growthUrl: e.target.value }))} placeholder="https://..." maxLength={500} />
-              </label>
-              <label>Video URL (optional)
-                <input type="url" value={resultDetails.videoUrl} onChange={(e) => setResultDetails((current) => ({ ...current, videoUrl: e.target.value }))} placeholder="https://..." maxLength={1000} />
-              </label>
-            </div>
-
-            <div className="admin-form-grid">
-              <label>Display order
-                <input type="number" value={order} onChange={(e) => setOrder(e.target.value)} required />
-              </label>
-            </div>
-
-            <div className="admin-social-editor">
-              <div>
-                <h3>Social accounts</h3>
-                <p>Add the accounts for this client. Only enabled icons will appear publicly.</p>
+            <div className="admin-gallery-editor rf-admin-gallery-editor">
+              <div className="rf-admin-gallery-heading">
+                <h3>Gallery images</h3>
+                <span>{(editing?.gallery?.length || 0) + galleryFiles.length} total</span>
               </div>
 
-              {socialLinks.map((link, index) => (
-                <div className="admin-social-row" key={index}>
-                  <label>Platform
-                    <select value={link.platform} onChange={(e) => updateSocialLink(index, { platform: e.target.value })}>
-                      {PLATFORMS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                    </select>
-                  </label>
-                  <label>Account URL
-                    <input
-                      type="url"
-                      value={link.url}
-                      onChange={(e) => updateSocialLink(index, { url: e.target.value })}
-                      placeholder="https://..."
-                    />
-                  </label>
-                  <label className="admin-social-visible">
-                    <input
-                      type="checkbox"
-                      checked={link.isVisible !== false}
-                      onChange={(e) => updateSocialLink(index, { isVisible: e.target.checked })}
-                    />
-                    Show icon
-                  </label>
-                  <button type="button" className="admin-secondary-button" onClick={() =>
-                    setSocialLinks((current) => current.filter((_, i) => i !== index))
-                  }>Remove</button>
-                </div>
-              ))}
+              {(editing?.gallery?.length || 0) + galleryFiles.length > 0 ? (
+                <div className="admin-gallery-editor-grid rf-admin-gallery-grid">
+                  {(editing?.gallery || []).map((item) => (
+                    <div className="admin-gallery-editor-item rf-admin-gallery-item" key={item.publicId}>
+                      <img src={item.url} alt={item.alt || "Project gallery"} />
+                      <small>Saved</small>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        disabled={busy}
+                        onClick={() => deleteGalleryImage(item)}
+                      >Delete</button>
+                    </div>
+                  ))}
 
-              <button
-                type="button"
-                className="admin-secondary-button"
-                onClick={() => setSocialLinks((current) => [
-                  ...current,
-                  { platform: "instagram", url: "", isVisible: true },
-                ])}
-              >+ Add social account</button>
+                  {galleryFiles.map((file, fileIndex) => (
+                    <div className="admin-gallery-editor-item rf-admin-gallery-item" key={`${file.name}-${file.size}-${file.lastModified}-${fileIndex}`}>
+                      <img src={galleryPreviews[fileIndex]} alt={`New gallery image ${fileIndex + 1}`} />
+                      <small>New image</small>
+                      <button
+                        type="button"
+                        className="admin-secondary-button"
+                        disabled={busy}
+                        onClick={() => {
+                          setGalleryFiles((current) => current.filter((_, index) => index !== fileIndex));
+                          const input = document.getElementById("result-gallery");
+                          if (input) input.value = "";
+                        }}
+                      >Remove</button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rf-admin-image-empty">No gallery images added yet.</p>
+              )}
             </div>
+
+            <label>Video link (optional)
+              <input
+                type="url"
+                value={resultDetails.videoUrl}
+                onChange={(e) => setResultDetails((current) => ({
+                  ...current,
+                  videoUrl: e.target.value,
+                  mediaType: e.target.value.trim() ? "video" : "image",
+                }))}
+                placeholder="https://www.youtube.com/watch?v=..."
+                maxLength={1000}
+              />
+              <small>Paste a YouTube video URL, or leave it empty if there is no video.</small>
+            </label>
+
+            <label>Brand name
+              <input
+                value={resultDetails.clientName}
+                onChange={(e) => setResultDetails((current) => ({ ...current, clientName: e.target.value }))}
+                maxLength={160}
+                required
+              />
+            </label>
+
+            <label>Work we did / category
+              <input
+                value={resultDetails.category}
+                onChange={(e) => setResultDetails((current) => ({ ...current, category: e.target.value }))}
+                placeholder="e.g. Social Media Marketing"
+                maxLength={160}
+                required
+              />
+            </label>
+
+            <label>Description
+              <textarea
+                value={resultDetails.description}
+                onChange={(e) => setResultDetails((current) => ({
+                  ...current,
+                  description: e.target.value,
+                  longDescription: e.target.value,
+                }))}
+                rows={5}
+                maxLength={12000}
+                placeholder="Describe the work we did for this brand..."
+                required
+              />
+            </label>
 
             <div className="admin-form-actions">
               <button className="admin-primary-button" disabled={busy}>
                 {busy ? "Saving…" : editing ? "Save changes" : "Upload and add result"}
               </button>
-              {editing && <button type="button" className="admin-secondary-button" onClick={resetForm}>Cancel edit</button>}
+              <button type="button" className="admin-secondary-button" onClick={resetForm}>Cancel</button>
             </div>
-          </form>
+              </form>
+            </div>
+          )}
         </section>
 
+
+        )}
+{/* section: activeSection === "results" */}
+{activeSection === "results" && (
         <section className="admin-list-section">
           <div className="admin-list-heading">
             <h2>All results <span>{results.length}</span></h2>
@@ -616,32 +1064,87 @@ export default function AdminPage() {
 
           {results.length === 0 ? (
             <div className="admin-empty">No results yet. Add your first cover image above.</div>
-          ) : (
-            <div className="admin-results-list">
-              {[...results].sort((a, b) => a.order - b.order).map((result, index) => {
-                const links = legacyLinks(result);
-                const shownCount = links.filter((link) => link.isVisible !== false).length;
-                return (
-                  <article className="admin-result-item" key={result._id}>
-                    <img src={result.imageUrl} alt="" />
-                    <div className="admin-result-info">
-                      <strong>Portfolio result</strong>
-                      <span>{links.length} social account(s) · {shownCount} icon(s) visible</span>
-                      <span>Order: {result.order} · {result.isActive ? "Published" : "Hidden"}</span>
+          ) : (() => {
+            const sortedResults = [...results].sort((a, b) => a.order - b.order);
+            const totalPages = Math.ceil(sortedResults.length / RESULTS_PER_PAGE);
+            const currentPage = Math.min(resultsPage, totalPages);
+            const startIndex = (currentPage - 1) * RESULTS_PER_PAGE;
+            const pageResults = sortedResults.slice(startIndex, startIndex + RESULTS_PER_PAGE);
+
+            return (
+              <>
+                <div className="admin-results-list">
+                  {pageResults.map((result, pageIndex) => {
+                    const links = legacyLinks(result);
+                    const shownCount = links.filter((link) => link.isVisible !== false).length;
+                    const globalIndex = startIndex + pageIndex;
+
+                    return (
+                      <article className="admin-result-item" key={result._id}>
+                        <img src={result.imageUrl} alt="" />
+                        <div className="admin-result-info">
+                          <strong>{result.clientName || result.brandName || result.title || "Untitled project"}</strong>
+                          <span>{result.category || result.type || (result.mediaType === "video" ? "Video project" : "Project")}</span>
+                          <span>{links.length} social account(s) · {shownCount} icon(s) visible</span>
+                          <span>Order: {result.order} · {result.isActive ? "Published" : "Hidden"}</span>
+                        </div>
+                        <div className="admin-result-actions">
+                          <button aria-label="Move up" disabled={globalIndex === 0} onClick={() => moveResult(result, -1)}>↑</button>
+                          <button aria-label="Move down" disabled={globalIndex === sortedResults.length - 1} onClick={() => moveResult(result, 1)}>↓</button>
+                          <button onClick={() => beginEdit(result)}>Edit</button>
+                          <button onClick={() => toggleActive(result)}>{result.isActive ? "Hide" : "Publish"}</button>
+                          <button className="admin-delete-button" onClick={() => deleteResult(result)}>Delete</button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                {totalPages > 1 && (
+                  <nav className="admin-results-pagination" aria-label="Results management pages">
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      disabled={currentPage === 1}
+                      onClick={() => setResultsPage((page) => Math.max(1, page - 1))}
+                    >
+                      Previous
+                    </button>
+
+                    <div className="admin-results-page-numbers">
+                      {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+                        <button
+                          key={page}
+                          type="button"
+                          className={page === currentPage ? "admin-primary-button" : "admin-secondary-button"}
+                          aria-current={page === currentPage ? "page" : undefined}
+                          onClick={() => setResultsPage(page)}
+                        >
+                          {page}
+                        </button>
+                      ))}
                     </div>
-                    <div className="admin-result-actions">
-                      <button aria-label="Move up" disabled={index === 0} onClick={() => moveResult(result, -1)}>↑</button>
-                      <button aria-label="Move down" disabled={index === results.length - 1} onClick={() => moveResult(result, 1)}>↓</button>
-                      <button onClick={() => beginEdit(result)}>Edit</button>
-                      <button onClick={() => toggleActive(result)}>{result.isActive ? "Hide" : "Publish"}</button>
-                      <button className="admin-delete-button" onClick={() => deleteResult(result)}>Delete</button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setResultsPage((page) => Math.min(totalPages, page + 1))}
+                    >
+                      Next
+                    </button>
+                  </nav>
+                )}
+
+                <p className="admin-results-pagination-summary">
+                  Showing {startIndex + 1}–{Math.min(startIndex + RESULTS_PER_PAGE, sortedResults.length)} of {sortedResults.length} results
+                </p>
+              </>
+            );
+          })()}
         </section>
+
+        )}
       </div>
     </main>
   );

@@ -200,12 +200,7 @@ export default function ServicesPage() {
           <div className="services-intro-copy">
             <span className="eyebrow"><span className="eyebrow-dot" /> WHAT WE DO</span>
             <h1>Good ideas deserve <span>real growth.</span></h1>
-            <p>From building your online presence to creating the technology behind your next big idea, we turn your goals into meaningful digital work.</p>
-          </div>
-          <div className="services-intro-aside">
-            <span className="services-intro-aside-icon"><ArrowDownRight size={22} /></span>
-            <span>OUR EXPERTISE</span>
-            <strong>Creative thinking.<br />Purposeful execution.</strong>
+            <p>We turn your ideas into digital experiences that drive growth.</p>
           </div>
         </section>
 

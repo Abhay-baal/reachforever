@@ -16,7 +16,7 @@ const TeamMember = require("./models/TeamMember");
 const SiteSettings = require("./models/SiteSettings");
 const Enquiry = require("./models/Enquiry");
 const adminAuth = require("./middleware/adminAuth");
-const { uploadImage, deleteImage, isConfigured } = require("./cloudinary");
+const { uploadImage, uploadVideo, deleteImage, deleteVideo, isConfigured } = require("./cloudinary");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
@@ -28,6 +28,7 @@ app.use(
     origin(origin, callback) {
       const allowed = [
         "http://localhost:3000",
+        "http://192.168.1.6:3000",
         ...(process.env.FRONTEND_URL || "").split(",").map((url) => url.trim()),
       ].filter(Boolean);
 
@@ -40,11 +41,23 @@ app.use(express.json({ limit: "1mb" }));
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 12 },
   fileFilter(req, file, callback) {
     const allowed = ["image/jpeg", "image/png", "image/webp", "image/avif"];
     if (!allowed.includes(file.mimetype)) {
       return callback(new Error("Use a JPG, PNG, WebP, or AVIF image."));
+    }
+    callback(null, true);
+  },
+});
+
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024, files: 1 },
+  fileFilter(req, file, callback) {
+    const allowed = ["video/mp4", "video/webm", "video/quicktime"];
+    if (!allowed.includes(file.mimetype)) {
+      return callback(new Error("Use an MP4, WebM, or MOV video."));
     }
     callback(null, true);
   },
@@ -136,6 +149,48 @@ function parseSocialLinks(value) {
   return cleaned;
 }
 
+
+function slugify(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90) || "item";
+}
+
+function parseTextList(value, maxItems = 30, maxLength = 300) {
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === "string" ? value.split(/\r?\n|;/) : [];
+  return items
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map((item) => item.slice(0, maxLength));
+}
+
+async function uniqueSlug(Model, value, exceptId = null) {
+  const base = slugify(value);
+  let candidate = base;
+  let suffix = 2;
+
+  while (true) {
+    const filter = { slug: candidate };
+    if (exceptId) filter._id = { $ne: exceptId };
+
+    const existing = await Model.findOne(filter).select("_id").lean();
+    if (!existing) return candidate;
+
+    candidate = `${base}-${suffix++}`;
+  }
+}
+
+function legacySlugMatch(document, slug, field) {
+  return slugify(document?.slug || document?.[field] || "") === slug;
+}
+
 function publicResult(result) {
   const legacyLinks = result.platform && result.socialUrl
     ? [{ platform: result.platform, url: result.socialUrl, isVisible: true }]
@@ -143,7 +198,9 @@ function publicResult(result) {
 
   return {
     _id: result._id,
+    slug: result.slug || slugify(result.clientName || result.category || String(result._id)),
     imageUrl: result.imageUrl,
+    imagePublicId: result.imagePublicId,
     platform: result.platform,
     socialUrl: result.socialUrl,
     socialLinks: Array.isArray(result.socialLinks)
@@ -152,9 +209,15 @@ function publicResult(result) {
     clientName: result.clientName,
     category: result.category,
     description: result.description,
+    longDescription: result.longDescription || result.description || "",
+    servicesProvided: Array.isArray(result.servicesProvided) ? result.servicesProvided : [],
+    keyResults: Array.isArray(result.keyResults) ? result.keyResults : [],
+    gallery: Array.isArray(result.gallery) ? result.gallery : [],
     growthUrl: result.growthUrl,
     mediaType: result.mediaType,
     videoUrl: result.videoUrl,
+    videoAssetUrl: result.videoAssetUrl || "",
+    videoPublicId: result.videoPublicId || "",
     order: result.order,
   };
 }
@@ -174,7 +237,16 @@ function publicService(service) {
 }
 
 function publicTeamMember(member) {
-  return { _id: member._id, name: member.name, role: member.role, biography: member.biography, imageUrl: member.imageUrl, socialLinks: member.socialLinks, order: member.order, isDemo: member.isDemo };
+  return {
+    _id: member._id,
+    slug: member.slug || slugify(member.name || String(member._id)),
+    name: member.name,
+    role: member.role,
+    biography: member.biography || "",
+    imageUrl: member.imageUrl || "",
+    socialLinks: Array.isArray(member.socialLinks) ? member.socialLinks : [],
+    order: member.order || 0,
+  };
 }
 
 function publicSettings(settings) {
@@ -237,6 +309,36 @@ app.get("/api/results", async (req, res, next) => {
   }
 });
 
+app.get("/api/results/:slug", async (req, res, next) => {
+  try {
+    await connectDB();
+
+    const requestedSlug = slugify(req.params.slug);
+    let result = await Result.findOne({
+      slug: requestedSlug,
+      isActive: true,
+    }).lean();
+
+    // Support older projects that predate stored slugs.
+    if (!result) {
+      const legacyResults = await Result.find({ isActive: true }).lean();
+      result = legacyResults.find((item) =>
+        legacySlugMatch(item, requestedSlug, "clientName") ||
+        (!item.slug && slugify(item.category || "") === requestedSlug)
+      ) || null;
+    }
+
+    if (!result) {
+      return res.status(404).json({ message: "Project not found." });
+    }
+
+    res.set("Cache-Control", "no-store");
+    res.json(publicResult(result));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/admin/results", adminAuth, async (req, res, next) => {
   try {
     await connectDB();
@@ -278,8 +380,12 @@ app.post(
         imageUrl: uploaded.secure_url,
         imagePublicId: uploaded.public_id,
         clientName: cleanText(req.body.clientName, 160),
+        slug: await uniqueSlug(Result, req.body.slug || req.body.clientName || req.body.category),
         category: cleanText(req.body.category, 160),
         description: cleanText(req.body.description, 3000),
+        longDescription: cleanText(req.body.longDescription, 12000),
+        servicesProvided: parseTextList(req.body.servicesProvided),
+        keyResults: parseTextList(req.body.keyResults),
         growthUrl: cleanText(req.body.growthUrl, 500),
         mediaType: req.body.mediaType === "video" ? "video" : "image",
         videoUrl: cleanText(req.body.videoUrl, 1000),
@@ -309,15 +415,44 @@ app.patch("/api/admin/results/:id", adminAuth, async (req, res, next) => {
     await connectDB();
 
     const updates = {};
-    const { platform, socialUrl, socialLinks: submittedLinks, order, isActive, clientName, category, description, growthUrl, mediaType, videoUrl } = req.body || {};
+    const {
+      platform, socialUrl, socialLinks: submittedLinks, order, isActive,
+      clientName, slug, category, description, longDescription,
+      servicesProvided, keyResults, growthUrl, mediaType, videoUrl
+    } = req.body || {};
 
-    for (const [field, value, maxLength] of [["clientName", clientName, 160], ["category", category, 160], ["description", description, 3000], ["growthUrl", growthUrl, 500], ["videoUrl", videoUrl, 1000]]) {
+    for (const [field, value, maxLength] of [
+      ["clientName", clientName, 160],
+      ["slug", slug, 120],
+      ["category", category, 160],
+      ["description", description, 3000],
+      ["longDescription", longDescription, 12000],
+      ["growthUrl", growthUrl, 500],
+      ["videoUrl", videoUrl, 1000]
+    ]) {
       if (value !== undefined) {
         const cleaned = cleanText(value, maxLength);
         if (cleaned === null) return res.status(400).json({ message: `${field} is too long.` });
         updates[field] = cleaned;
       }
     }
+
+    if (slug !== undefined || clientName !== undefined) {
+      const slugSource = slug !== undefined ? slug : clientName;
+      const cleanedSlug = cleanText(slugSource, 120);
+      if (cleanedSlug === null) {
+        return res.status(400).json({ message: "Slug must be 120 characters or fewer." });
+      }
+      updates.slug = await uniqueSlug(Result, cleanedSlug, req.params.id);
+    }
+
+    for (const [field, value] of [
+      ["servicesProvided", servicesProvided],
+      ["keyResults", keyResults]
+    ]) {
+      if (value !== undefined) updates[field] = parseTextList(value);
+    }
+
     if (mediaType !== undefined) {
       if (!["image", "video"].includes(mediaType)) return res.status(400).json({ message: "Invalid media type." });
       updates.mediaType = mediaType;
@@ -426,6 +561,111 @@ app.post(
   }
 );
 
+app.post(
+  "/api/admin/results/:id/video",
+  adminAuth,
+  videoUpload.single("video"),
+  async (req, res, next) => {
+    let uploaded;
+
+    try {
+      await connectDB();
+
+      if (!req.file) {
+        return res.status(400).json({ message: "Choose an MP4, WebM, or MOV video." });
+      }
+
+      const result = await Result.findById(req.params.id);
+      if (!result) return res.status(404).json({ message: "Project not found." });
+
+      uploaded = await uploadVideo(req.file.buffer);
+      const previousPublicId = result.videoPublicId;
+
+      result.videoAssetUrl = uploaded.secure_url;
+      result.videoPublicId = uploaded.public_id;
+      result.mediaType = "video";
+      await result.save();
+
+      if (previousPublicId) {
+        try {
+          await deleteVideo(previousPublicId);
+        } catch (cleanupError) {
+          console.error("Old video cleanup failed:", cleanupError.message);
+        }
+      }
+
+      res.json(publicResult(result));
+    } catch (error) {
+      if (uploaded?.public_id) {
+        try {
+          await deleteVideo(uploaded.public_id);
+        } catch (cleanupError) {
+          console.error("Video upload rollback failed:", cleanupError.message);
+        }
+      }
+      next(error);
+    }
+  }
+);
+
+app.post(
+  "/api/admin/results/:id/gallery",
+  adminAuth,
+  upload.array("gallery", 12),
+  async (req, res, next) => {
+    const uploadedItems = [];
+    try {
+      await connectDB();
+      const result = await Result.findById(req.params.id);
+      if (!result) return res.status(404).json({ message: "Project not found." });
+      if (!req.files?.length) {
+        return res.status(400).json({ message: "Choose at least one gallery image." });
+      }
+
+      for (const file of req.files) {
+        const uploaded = await uploadImage(file.buffer, "reachforever/results/gallery");
+        uploadedItems.push({
+          url: uploaded.secure_url,
+          publicId: uploaded.public_id,
+          alt: "",
+          caption: "",
+        });
+      }
+
+      result.gallery = [...(result.gallery || []), ...uploadedItems];
+      await result.save();
+      res.status(201).json(publicResult(result));
+    } catch (error) {
+      for (const item of uploadedItems) {
+        try { await deleteImage(item.publicId); }
+        catch (cleanupError) {
+          console.error("Gallery upload rollback failed:", cleanupError.message);
+        }
+      }
+      next(error);
+    }
+  }
+);
+
+app.delete("/api/admin/results/:id/gallery/:publicId", adminAuth, async (req, res, next) => {
+  try {
+    await connectDB();
+    const result = await Result.findById(req.params.id);
+    if (!result) return res.status(404).json({ message: "Project not found." });
+
+    const publicId = req.params.publicId;
+    const item = (result.gallery || []).find((entry) => entry.publicId === publicId);
+    if (!item) return res.status(404).json({ message: "Gallery image not found." });
+
+    await deleteImage(item.publicId);
+    result.gallery = result.gallery.filter((entry) => entry.publicId !== publicId);
+    await result.save();
+    res.json(publicResult(result));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.delete("/api/admin/results/:id", adminAuth, async (req, res, next) => {
   try {
     await connectDB();
@@ -436,16 +676,34 @@ app.delete("/api/admin/results/:id", adminAuth, async (req, res, next) => {
     await result.deleteOne();
 
     let imageCleanup = "complete";
-    try {
-      await deleteImage(result.imagePublicId);
-    } catch (error) {
-      imageCleanup = "failed";
-      console.error("Result deleted from MongoDB, but image cleanup failed:", error.message);
+    const publicIds = [
+      result.imagePublicId,
+      ...(Array.isArray(result.gallery) ? result.gallery.map((item) => item.publicId) : []),
+    ].filter(Boolean);
+
+    for (const publicId of publicIds) {
+      try {
+        await deleteImage(publicId);
+      } catch (error) {
+        imageCleanup = "failed";
+        console.error("Result deleted from MongoDB, but Cloudinary image cleanup failed:", publicId, error.message);
+      }
+    }
+
+    let videoCleanup = "complete";
+    if (result.videoPublicId) {
+      try {
+        await deleteVideo(result.videoPublicId);
+      } catch (error) {
+        videoCleanup = "failed";
+        console.error("Result deleted from MongoDB, but Cloudinary video cleanup failed:", result.videoPublicId, error.message);
+      }
     }
 
     res.json({
       message: "Result permanently deleted from the database.",
       imageCleanup,
+      videoCleanup,
     });
   } catch (error) {
     next(error);
@@ -602,6 +860,17 @@ app.get("/api/team", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get("/api/team/:slug", async (req, res, next) => {
+  try {
+    await connectDB();
+    const requestedSlug = slugify(req.params.slug);
+    const members = await TeamMember.find({ isPublished: true }).lean();
+    const member = members.find((item) => legacySlugMatch(item, requestedSlug, "name"));
+    if (!member) return res.status(404).json({ message: "Team member not found." });
+    res.json(publicTeamMember(member));
+  } catch (error) { next(error); }
+});
+
 app.get("/api/site-settings", async (req, res, next) => {
   try {
     await connectDB();
@@ -669,93 +938,121 @@ app.delete("/api/admin/services/:id", adminAuth, async (req, res, next) => {
 app.get("/api/admin/team", adminAuth, async (req, res, next) => {
   try {
     await connectDB();
-
-    const demoMembers = [
-      {
-        name: "Ashwin",
-        role: "Social Media Strategist",
-        order: 1,
-        imageUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=85",
-      },
-      {
-        name: "Abhay",
-        role: "Performance Marketer",
-        order: 2,
-        imageUrl: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=85",
-      },
-      {
-        name: "Arvan",
-        role: "Creative Designer",
-        order: 3,
-        imageUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=85",
-      },
-      {
-        name: "Dhruv",
-        role: "Content Specialist",
-        order: 4,
-        imageUrl: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=85",
-      },
-    ];
-
-    let members = await TeamMember.find().sort({ order: 1, createdAt: 1 });
-
-    if (members.length === 0) {
-      await TeamMember.insertMany(
-        demoMembers.map((member) => ({
-          ...member,
-          biography: "Demo profile — replace with the real team member biography.",
-          isDemo: true,
-          isPublished: true,
-        }))
-      );
-    } else {
-      for (const demo of demoMembers) {
-        await TeamMember.updateOne(
-          {
-            isDemo: true,
-            $or: [
-              { name: `Team Member ${demo.order}` },
-              { name: demo.name },
-            ],
-          },
-          {
-            $set: {
-              name: demo.name,
-              role: demo.role,
-              biography: "Demo profile — replace with the real team member biography.",
-              imageUrl: demo.imageUrl,
-              order: demo.order,
-              isPublished: true,
-              imageUrl: demo.imageUrl,
-            },
-          }
-        );
-      }
-    }
-
-    // Ensure existing demo profiles receive their temporary portraits.
-    for (const demo of demoMembers) {
-      await TeamMember.updateOne(
-        { name: demo.name, isDemo: true },
-        { $set: { imageUrl: demo.imageUrl, isPublished: true } }
-      );
-    }
-
-    members = await TeamMember.find().sort({ order: 1, createdAt: 1 });
+    const members = await TeamMember.find().sort({ order: 1, createdAt: 1 });
     res.json(members);
-  } catch (error) { next(error); }
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post("/api/admin/team", adminAuth, async (req, res, next) => {
-  try { const name = cleanText(req.body?.name, 120, true); const role = cleanText(req.body?.role, 160, true); if (!name || !role) return res.status(400).json({ message: "Name and role are required." }); await connectDB(); res.status(201).json(await TeamMember.create({ ...req.body, name, role, order: Number(req.body.order) || 0 })); } catch (error) { next(error); }
+  try {
+    const name = cleanText(req.body?.name, 120, true);
+    const role = cleanText(req.body?.role, 160, true);
+    if (!name || !role) return res.status(400).json({ message: "Name and role are required." });
+    await connectDB();
+    const slug = await uniqueSlug(TeamMember, req.body?.slug || name);
+    const member = await TeamMember.create({
+      ...req.body,
+      name,
+      role,
+      slug,
+      order: Number(req.body.order) || 0,
+    });
+    res.status(201).json(member);
+  } catch (error) { next(error); }
 });
 
 app.patch("/api/admin/team/:id", adminAuth, async (req, res, next) => {
-  try { await connectDB(); const updates = { ...req.body }; if (updates.order !== undefined) updates.order = Number(updates.order); const member = await TeamMember.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true }); if (!member) return res.status(404).json({ message: "Team member not found." }); res.json(member); } catch (error) { next(error); }
+  try {
+    await connectDB();
+    const member = await TeamMember.findById(req.params.id);
+    if (!member) return res.status(404).json({ message: "Team member not found." });
+
+    const updates = { ...req.body };
+    if (updates.name !== undefined) {
+      updates.name = cleanText(updates.name, 120, true);
+      if (!updates.name) return res.status(400).json({ message: "Name is required." });
+    }
+    if (updates.role !== undefined) {
+      updates.role = cleanText(updates.role, 160, true);
+      if (!updates.role) return res.status(400).json({ message: "Role is required." });
+    }
+    if (updates.slug !== undefined || updates.name !== undefined) {
+      updates.slug = await uniqueSlug(TeamMember, updates.slug || updates.name || member.name, member._id);
+    }
+    if (updates.order !== undefined) updates.order = Number(updates.order);
+    Object.assign(member, updates);
+    await member.save();
+    res.json(member);
+  } catch (error) { next(error); }
+});
+
+app.post("/api/admin/team/:id/image", adminAuth, upload.single("image"), async (req, res, next) => {
+  let uploaded;
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Choose an image." });
+    }
+
+    await connectDB();
+
+    const member = await TeamMember.findById(req.params.id);
+    if (!member) {
+      return res.status(404).json({ message: "Team member not found." });
+    }
+
+    uploaded = await uploadImage(req.file.buffer, "reachforever/team");
+
+    const previousPublicId = member.imagePublicId;
+    member.imageUrl = uploaded.secure_url;
+    member.imagePublicId = uploaded.public_id;
+    await member.save();
+
+    if (previousPublicId && previousPublicId !== uploaded.public_id) {
+      try {
+        await deleteImage(previousPublicId);
+      } catch (cleanupError) {
+        console.error("Previous team image cleanup failed:", cleanupError);
+      }
+    }
+
+    res.json(member);
+  } catch (error) {
+    if (uploaded?.public_id) {
+      try {
+        await deleteImage(uploaded.public_id);
+      } catch (cleanupError) {
+        console.error("New team image cleanup failed:", cleanupError);
+      }
+    }
+
+    next(error);
+  }
 });
 
 app.delete("/api/admin/team/:id", adminAuth, async (req, res, next) => {
-  try { await connectDB(); const member = await TeamMember.findByIdAndDelete(req.params.id); if (!member) return res.status(404).json({ message: "Team member not found." }); res.json({ message: "Team member deleted." }); } catch (error) { next(error); }
+  try {
+    await connectDB();
+
+    const member = await TeamMember.findByIdAndDelete(req.params.id);
+    if (!member) {
+      return res.status(404).json({ message: "Team member not found." });
+    }
+
+    if (member.imagePublicId) {
+      try {
+        await deleteImage(member.imagePublicId);
+      } catch (cleanupError) {
+        console.error("Deleted team member image cleanup failed:", cleanupError);
+      }
+    }
+
+    res.json({ message: "Team member deleted." });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/admin/site-settings", adminAuth, async (req, res, next) => {

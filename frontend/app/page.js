@@ -70,28 +70,8 @@ export default function Home() {
             <a className="button button-primary" href="#contact">
               Let&apos;s grow together <ArrowIcon />
             </a>
-            <a className="text-link" href="#services">
-              Discover what we do <ArrowIcon />
-            </a>
           </div>
 
-          <div className="hero-proof">
-            <span className="proof-symbol">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none">
-                <path
-                  d="m5 12 4 4L19 6"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-            <span>
-              <strong>Real strategy. Real people.</strong>
-              <small>Growth that means something.</small>
-            </span>
-          </div>
         </div>
 
         <div
@@ -104,12 +84,6 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="hero-bottom">
-          <span>BUILT ON TRUST. FOCUSED ON GROWTH.</span>
-          <a href="#services">
-            SCROLL TO EXPLORE <span>↓</span>
-          </a>
-        </div>
       </section>
 
       <ResultsSection />
